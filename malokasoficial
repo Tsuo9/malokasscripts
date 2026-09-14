@@ -1,8 +1,8 @@
 --[[
-    MALOKAS SCRIPTER FREE v24 🦈🌈
-    - AIMBOT 100% AUTOMÁTICO (só ativar)
-    - Trava na cabeça do inimigo mais próximo sozinho
-    - Loading rainbow + redes sociais
+    MALOKAS SCRIPTER FREE v34 🦈🌈
+    - Sistema PEGAR/ARREMESSAR modelo (estilo Shark Menu)
+    - Tecla E pra pegar/soltar/arremessar
+    - Física realista com velocidade + rotação
 --]]
 
 local Players           = game:GetService("Players")
@@ -18,14 +18,50 @@ local Camera      = Workspace.CurrentCamera
 local PlayerGui   = LocalPlayer:WaitForChild("PlayerGui")
 
 --============================================================
+-- BYPASS / ANTI-REVERT
+--============================================================
+local AntiRevert = { Active = false, LastGoodCFrame = nil }
+
+pcall(function()
+    local mt = getrawmetatable and getrawmetatable(game)
+    if mt and setreadonly and setrawmetatable then
+        local old = mt.__namecall
+        setreadonly(mt, false)
+        mt.__namecall = newcclosure(function(self, ...)
+            local method = getnamecallmethod and getnamecallmethod()
+            if method == "Kick" then return nil end
+            return old(self, ...)
+        end)
+        setreadonly(mt, true)
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    if not AntiRevert.Active then return end
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    if AntiRevert.LastGoodCFrame then
+        local diff = (hrp.Position - AntiRevert.LastGoodCFrame.Position).Magnitude
+        if diff > 8 then
+            pcall(function() hrp.CFrame = AntiRevert.LastGoodCFrame end)
+        end
+    end
+    AntiRevert.LastGoodCFrame = hrp.CFrame
+end)
+
+--============================================================
 -- CONFIG
 --============================================================
 local CONFIG = {
     LogoImage      = "rbxassetid://119987915217554",
-    TikTokUser     = "@malokasscr1pter",
     DiscordLink    = "https://discord.gg/bQZHUmdNfM",
+    TikTokUser     = "@malokasscri1pts",
+    TikTokURL      = "https://www.tiktok.com/@malokasscri1pts",
+    InvisibleScript= "https://pastebin.com/raw/3Rnd9rHf",
+    FlyV3Script    = "https://raw.githubusercontent.com/XNEOFF/FlyGuiV3/main/FlyGuiV3.txt",
 
-    -- AIMBOT
     AimEnabled     = false,
     AimTeamCheck   = true,
     AimSmoothness  = 0.65,
@@ -35,25 +71,23 @@ local CONFIG = {
     AimMode        = "Médio",
     AimVisibleOnly = false,
 
-    -- ESP
     ESPEnabled     = false,
     ESPTeamCheck   = true,
     ESPBox         = true,
-    ESPBoxFill     = true,
-    ESPName        = true,
-    ESPHealthBar   = true,
-    ESPDistance    = true,
+    ESPTracer      = true,
     ESPSkeleton    = true,
-    ESPHeadDot     = true,
-    ESPOutline     = true,
+    ESPBoxFill     = false,
+    ESPName        = false,
+    ESPHealthBar   = false,
+    ESPDistance    = false,
+    ESPHeadDot     = false,
+    ESPOutline     = false,
     ESPFovCircle   = true,
-    ESPColorMode   = "Vida",
-    ESPFixedColor  = Color3.fromRGB(0, 220, 255),
-    ESPRainbowSpeed= 1.0,
+    ESPRainbowSpeed= 1.2,
 
-    -- EXTRAS
     FlyEnabled     = false,
     FlySpeed       = 60,
+    FlyAntiRevert  = true,
     NoclipEnabled  = false,
     InfJumpEnabled = false,
     SpeedEnabled   = false,
@@ -61,6 +95,16 @@ local CONFIG = {
     Fullbright     = false,
     NoFog          = false,
     AntiAfk        = true,
+    BypassEnabled  = true,
+
+    -- SISTEMA DE PEGAR/ARREMESSAR
+    GrabDistance   = 8,      -- distância que o model fica na frente
+    ThrowForce     = 300,    -- força do arremesso normal
+    ThrowForceMax  = 900,    -- força quando segura botão direito
+    ThrowUpForce   = 80,     -- força pra cima no arremesso
+    ThrowSpin      = 60,     -- rotação no arremesso
+    MaxGrabMass    = 5000,   -- massa máxima que dá pra pegar
+    GrabKey        = Enum.KeyCode.E,
 }
 
 local ACCENT1 = Color3.fromRGB(0, 170, 255)
@@ -70,8 +114,8 @@ local TEXT    = Color3.fromRGB(230, 230, 240)
 local TEXTDIM = Color3.fromRGB(140, 140, 160)
 
 local AIM_PRESETS = {
-    ["Fraco"]  = { smooth = 0.30, fov = 350, prediction = 0.05 },
-    ["Médio"]  = { smooth = 0.65, fov = 700, prediction = 0.10 },
+    ["Fraco"]  = { smooth = 0.30, fov = 350,  prediction = 0.05 },
+    ["Médio"]  = { smooth = 0.65, fov = 700,  prediction = 0.10 },
     ["Forte"]  = { smooth = 0.85, fov = 1000, prediction = 0.14 },
     ["Hack"]   = { smooth = 0.98, fov = 2000, prediction = 0.20 },
 }
@@ -82,6 +126,191 @@ local function getRainbowColor(offset)
     local hue = (rainbowTime * CONFIG.ESPRainbowSpeed + offset) % 1
     return Color3.fromHSV(hue, 1, 1)
 end
+
+local function getNormalColor(ratio, kind)
+    if kind == "health" then
+        if ratio > 0.6 then return Color3.fromRGB(0,255,100)
+        elseif ratio > 0.3 then return Color3.fromRGB(255,200,0)
+        else return Color3.fromRGB(255,60,60) end
+    elseif kind == "name" then
+        return Color3.new(1,1,1)
+    elseif kind == "distance" then
+        return Color3.fromRGB(200,200,200)
+    elseif kind == "headdot" then
+        return Color3.fromRGB(255,60,60)
+    else
+        return ACCENT1
+    end
+end
+
+--============================================================
+-- SISTEMA PEGAR / ARREMESSAR
+--============================================================
+local GrabSystem = {
+    Holding = false,
+    GrabbedModel = nil,
+    GrabbedParts = {},
+    GrabbedVelocities = {},
+    OriginalAnchors = {},
+    OriginalCFrames = {},
+}
+
+local function getModelUnderMouse()
+    local mouse = LocalPlayer:GetMouse()
+    if not mouse or not mouse.Target then return nil end
+    local part = mouse.Target
+    if not part or not part:IsDescendantOf(Workspace) then return nil end
+
+    -- Ignora o próprio personagem
+    local char = LocalPlayer.Character
+    if char and part:IsDescendantOf(char) then return nil end
+
+    -- Tenta achar um Model ancestral (carro, mesa, npc)
+    local model = part:FindFirstAncestorOfClass("Model")
+    if model and model ~= char then
+        return model
+    end
+    -- Se não tiver Model, retorna a própria peça
+    return part
+end
+
+local function grabModel(model)
+    if GrabSystem.Holding then return end
+    if not model then return end
+
+    -- Coleta todas as partes e salva estado
+    local parts = {}
+    local anchorState = {}
+    local cframes = {}
+    local isModel = model:IsA("Model")
+
+    if isModel then
+        for _, p in ipairs(model:GetDescendants()) do
+            if p:IsA("BasePart") then
+                table.insert(parts, p)
+                anchorState[p] = p.Anchored
+                cframes[p] = p.CFrame
+            end
+        end
+    elseif model:IsA("BasePart") then
+        table.insert(parts, model)
+        anchorState[model] = model.Anchored
+        cframes[model] = model.CFrame
+    end
+
+    if #parts == 0 then return end
+
+    GrabSystem.Holding = true
+    GrabSystem.GrabbedModel = model
+    GrabSystem.GrabbedParts = parts
+    GrabSystem.OriginalAnchors = anchorState
+    GrabSystem.OriginalCFrames = cframes
+
+    -- Ancora todas pra segurar sem cair
+    for _, p in ipairs(parts) do
+        pcall(function()
+            p.Anchored = true
+            p.Massless = true
+        end)
+    end
+end
+
+local function releaseModel()
+    if not GrabSystem.Holding then return end
+    for _, p in ipairs(GrabSystem.GrabbedParts) do
+        if p and p.Parent then
+            pcall(function()
+                p.Anchored = false
+                p.Massless = false
+            end)
+        end
+    end
+    GrabSystem.Holding = false
+    GrabSystem.GrabbedModel = nil
+    GrabSystem.GrabbedParts = {}
+end
+
+local function throwModel(strong)
+    if not GrabSystem.Holding then
+        -- Se não está segurando, pega o que está na mira e arremessa
+        local m = getModelUnderMouse()
+        if not m then return end
+        grabModel(m)
+        task.wait(0.05)
+    end
+    if not GrabSystem.Holding then return end
+
+    local force = strong and CONFIG.ThrowForceMax or CONFIG.ThrowForce
+    local up = CONFIG.ThrowUpForce
+    local spin = CONFIG.ThrowSpin
+
+    local camLook = Camera.CFrame.LookVector
+    local dir = Vector3.new(camLook.X, camLook.Y * 0.3, camLook.Z)
+    if dir.Magnitude > 0 then
+        dir = dir.Unit
+    else
+        dir = Vector3.new(0, 0, -1)
+    end
+
+    local parts = GrabSystem.GrabbedParts
+    for _, p in ipairs(parts) do
+        if p and p.Parent then
+            pcall(function()
+                p.Anchored = false
+                p.Massless = false
+                p.AssemblyLinearVelocity = dir * force + Vector3.new(0, up, 0)
+                p.AssemblyAngularVelocity = Vector3.new(
+                    math.random(-spin, spin),
+                    math.random(-spin, spin),
+                    math.random(-spin, spin)
+                )
+            end)
+        end
+    end
+
+    GrabSystem.Holding = false
+    GrabSystem.GrabbedModel = nil
+    GrabSystem.GrabbedParts = {}
+end
+
+-- Loop: mantém o model seguindo a mira enquanto segura
+RunService.RenderStepped:Connect(function()
+    if not GrabSystem.Holding then return end
+    if not GrabSystem.GrabbedModel then return end
+
+    local char = LocalPlayer.Character
+    local myHrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not myHrp then return end
+
+    -- Ponto alvo na frente da câmera
+    local targetPos = Camera.CFrame.Position + Camera.CFrame.LookVector * CONFIG.GrabDistance
+
+    -- Calcula o centro atual do model
+    local center = Vector3.zero
+    local count = 0
+    for _, p in ipairs(GrabSystem.GrabbedParts) do
+        if p and p.Parent then
+            center = center + p.Position
+            count = count + 1
+        end
+    end
+    if count == 0 then
+        releaseModel()
+        return
+    end
+    center = center / count
+
+    local offset = targetPos - center
+
+    -- Move todas as partes
+    for _, p in ipairs(GrabSystem.GrabbedParts) do
+        if p and p.Parent then
+            pcall(function()
+                p.CFrame = p.CFrame + offset
+            end)
+        end
+    end
+end)
 
 --============================================================
 -- ROOT GUI
@@ -95,7 +324,7 @@ ScreenGui.DisplayOrder = 999
 ScreenGui.Parent = PlayerGui
 
 --============================================================
--- TELA DE CARREGAMENTO
+-- LOADING
 --============================================================
 local LoadingGui = Instance.new("ScreenGui")
 LoadingGui.Name = "MalokasLoading"
@@ -125,7 +354,7 @@ end
 
 local pulse = Instance.new("Frame", LoadBg)
 pulse.AnchorPoint = Vector2.new(0.5, 0.5)
-pulse.Position = UDim2.new(0.5, 0, 0.38, 0)
+pulse.Position = UDim2.new(0.5, 0, 0.28, 0)
 pulse.Size = UDim2.new(0, 120, 0, 120)
 pulse.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
 pulse.BackgroundTransparency = 0.85
@@ -136,32 +365,32 @@ task.spawn(function()
     while pulse.Parent do
         pulse.Size = UDim2.new(0, 120, 0, 120)
         pulse.BackgroundTransparency = 0.85
-        TweenService:Create(pulse, TweenInfo.new(1.4, Enum.EasingStyle.Quad), {
-            Size = UDim2.new(0, 280, 0, 280),
+        TweenService:Create(pulse, TweenInfo.new(1.6, Enum.EasingStyle.Quad), {
+            Size = UDim2.new(0, 320, 0, 320),
             BackgroundTransparency = 1,
         }):Play()
-        task.wait(1.4)
+        task.wait(1.6)
     end
 end)
 
 local LoadLogo = Instance.new("ImageLabel", LoadBg)
 LoadLogo.AnchorPoint = Vector2.new(0.5, 0.5)
-LoadLogo.Position = UDim2.new(0.5, 0, 0.38, 0)
-LoadLogo.Size = UDim2.new(0, 120, 0, 120)
+LoadLogo.Position = UDim2.new(0.5, 0, 0.28, 0)
+LoadLogo.Size = UDim2.new(0, 110, 0, 110)
 LoadLogo.BackgroundTransparency = 1
 LoadLogo.Image = CONFIG.LogoImage
 LoadLogo.ScaleType = Enum.ScaleType.Fit
 LoadLogo.ImageTransparency = 1
 
 TweenService:Create(LoadLogo, TweenInfo.new(0.9, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-    Size = UDim2.new(0, 150, 0, 150),
+    Size = UDim2.new(0, 140, 0, 140),
     ImageTransparency = 0,
 }):Play()
 
 local LoadTitle = Instance.new("TextLabel", LoadBg)
 LoadTitle.AnchorPoint = Vector2.new(0.5, 0.5)
-LoadTitle.Position = UDim2.new(0.5, 0, 0.55, 0)
-LoadTitle.Size = UDim2.new(0.9, 0, 0, 44)
+LoadTitle.Position = UDim2.new(0.5, 0, 0.43, 0)
+LoadTitle.Size = UDim2.new(0.9, 0, 0, 40)
 LoadTitle.BackgroundTransparency = 1
 LoadTitle.Text = "MALOKAS SCRIPTER"
 LoadTitle.TextColor3 = Color3.new(1,1,1)
@@ -199,15 +428,44 @@ titleStroke.Transparency = 0.3
 
 task.spawn(function()
     while LoadTitle.Parent do
-        local hue = tick() * 0.3 % 1
-        titleStroke.Color = Color3.fromHSV(hue, 1, 1)
+        titleStroke.Color = Color3.fromHSV(tick() * 0.3 % 1, 1, 1)
         RunService.RenderStepped:Wait()
     end
 end)
 
+local WarningLabel = Instance.new("TextLabel", LoadBg)
+WarningLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+WarningLabel.Position = UDim2.new(0.5, 0, 0.515, 0)
+WarningLabel.Size = UDim2.new(0.9, 0, 0, 26)
+WarningLabel.BackgroundTransparency = 1
+WarningLabel.Text = "🔥 SE FOR PRA XITAR É PRA XITAR MESMO 🔥"
+WarningLabel.TextColor3 = Color3.fromRGB(255,255,255)
+WarningLabel.Font = Enum.Font.GothamBlack
+WarningLabel.TextScaled = true
+WarningLabel.TextTransparency = 1
+
+local warnGrad = Instance.new("UIGradient", WarningLabel)
+warnGrad.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(255,0,0)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255,200,0)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(255,0,0)),
+})
+
+task.spawn(function()
+    while WarningLabel.Parent do
+        for i = 0, 1, 0.02 do
+            if not WarningLabel.Parent then break end
+            warnGrad.Offset = Vector2.new(i, 0)
+            RunService.RenderStepped:Wait()
+        end
+    end
+end)
+
+TweenService:Create(WarningLabel, TweenInfo.new(1.1), {TextTransparency = 0}):Play()
+
 local LoadSub = Instance.new("TextLabel", LoadBg)
 LoadSub.AnchorPoint = Vector2.new(0.5, 0.5)
-LoadSub.Position = UDim2.new(0.5, 0, 0.61, 0)
+LoadSub.Position = UDim2.new(0.5, 0, 0.595, 0)
 LoadSub.Size = UDim2.new(1, 0, 0, 18)
 LoadSub.BackgroundTransparency = 1
 LoadSub.Text = "🦈  FREE VERSION  🌈"
@@ -217,40 +475,25 @@ LoadSub.TextSize = 14
 LoadSub.TextTransparency = 1
 TweenService:Create(LoadSub, TweenInfo.new(1.2), {TextTransparency = 0}):Play()
 
--- Redes sociais
 local socialFrame = Instance.new("Frame", LoadBg)
 socialFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-socialFrame.Position = UDim2.new(0.5, 0, 0.72, 0)
-socialFrame.Size = UDim2.new(0, 360, 0, 90)
+socialFrame.Position = UDim2.new(0.5, 0, 0.71, 0)
+socialFrame.Size = UDim2.new(0, 380, 0, 90)
 socialFrame.BackgroundTransparency = 1
 
 local tiktokBtn = Instance.new("TextButton", socialFrame)
 tiktokBtn.Size = UDim2.new(1, 0, 0, 26)
 tiktokBtn.BackgroundColor3 = Color3.fromRGB(15,15,25)
 tiktokBtn.BackgroundTransparency = 0.3
-tiktokBtn.Text = "📱  Siga  @malokasscr1pter  no TikTok"
+tiktokBtn.Text = "📱  Siga  " .. CONFIG.TikTokUser .. "  no TikTok"
 tiktokBtn.TextColor3 = Color3.fromRGB(255,255,255)
 tiktokBtn.Font = Enum.Font.GothamBold
 tiktokBtn.TextSize = 13
 tiktokBtn.BorderSizePixel = 0
 Instance.new("UICorner", tiktokBtn).CornerRadius = UDim.new(1,0)
-
-local tiktokStroke = Instance.new("UIStroke", tiktokBtn)
-tiktokStroke.Color = Color3.fromRGB(0, 200, 255)
-tiktokStroke.Thickness = 1.5
-tiktokStroke.Transparency = 0.3
-
-tiktokBtn.MouseEnter:Connect(function()
-    TweenService:Create(tiktokBtn, TweenInfo.new(0.15), {BackgroundTransparency = 0}):Play()
-    TweenService:Create(tiktokStroke, TweenInfo.new(0.15), {Transparency = 0}):Play()
-end)
-tiktokBtn.MouseLeave:Connect(function()
-    TweenService:Create(tiktokBtn, TweenInfo.new(0.15), {BackgroundTransparency = 0.3}):Play()
-    TweenService:Create(tiktokStroke, TweenInfo.new(0.15), {Transparency = 0.3}):Play()
-end)
 tiktokBtn.MouseButton1Click:Connect(function()
     pcall(function()
-        game:GetService("GuiService"):OpenBrowserWindow("https://www.tiktok.com/@malokasscr1pter")
+        game:GetService("GuiService"):OpenBrowserWindow(CONFIG.TikTokURL)
     end)
 end)
 
@@ -265,20 +508,6 @@ discordBtn.Font = Enum.Font.GothamBold
 discordBtn.TextSize = 13
 discordBtn.BorderSizePixel = 0
 Instance.new("UICorner", discordBtn).CornerRadius = UDim.new(1,0)
-
-local discordStroke = Instance.new("UIStroke", discordBtn)
-discordStroke.Color = Color3.fromRGB(120, 100, 255)
-discordStroke.Thickness = 1.5
-discordStroke.Transparency = 0.2
-
-discordBtn.MouseEnter:Connect(function()
-    TweenService:Create(discordBtn, TweenInfo.new(0.15), {BackgroundTransparency = 0}):Play()
-    TweenService:Create(discordStroke, TweenInfo.new(0.15), {Transparency = 0}):Play()
-end)
-discordBtn.MouseLeave:Connect(function()
-    TweenService:Create(discordBtn, TweenInfo.new(0.15), {BackgroundTransparency = 0.2}):Play()
-    TweenService:Create(discordStroke, TweenInfo.new(0.15), {Transparency = 0.2}):Play()
-end)
 discordBtn.MouseButton1Click:Connect(function()
     pcall(function()
         game:GetService("GuiService"):OpenBrowserWindow(CONFIG.DiscordLink)
@@ -314,24 +543,22 @@ copyBtn.Font = Enum.Font.GothamBold
 copyBtn.TextSize = 11
 copyBtn.BorderSizePixel = 0
 Instance.new("UICorner", copyBtn).CornerRadius = UDim.new(0,5)
-
 copyBtn.MouseButton1Click:Connect(function()
     pcall(function()
         if setclipboard then setclipboard(CONFIG.DiscordLink) end
     end)
     local oldText = copyBtn.Text
-    local oldColor = copyBtn.BackgroundColor3
     copyBtn.Text = "✅ COPIADO!"
     copyBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
     task.wait(1.5)
     copyBtn.Text = oldText
-    copyBtn.BackgroundColor3 = oldColor
+    copyBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
 end)
 
 local LoadBarHolder = Instance.new("Frame", LoadBg)
 LoadBarHolder.AnchorPoint = Vector2.new(0.5, 0.5)
-LoadBarHolder.Position = UDim2.new(0.5, 0, 0.86, 0)
-LoadBarHolder.Size = UDim2.new(0.4, 0, 0, 5)
+LoadBarHolder.Position = UDim2.new(0.5, 0, 0.87, 0)
+LoadBarHolder.Size = UDim2.new(0.4, 0, 0, 6)
 LoadBarHolder.BackgroundColor3 = Color3.fromRGB(25, 25, 32)
 LoadBarHolder.BorderSizePixel = 0
 Instance.new("UICorner", LoadBarHolder).CornerRadius = UDim.new(1,0)
@@ -343,12 +570,6 @@ LoadBarFill.BorderSizePixel = 0
 Instance.new("UICorner", LoadBarFill).CornerRadius = UDim.new(1,0)
 
 local fillGrad = Instance.new("UIGradient", LoadBarFill)
-fillGrad.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(255,0,0)),
-    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255,200,0)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(0,255,100)),
-})
-
 task.spawn(function()
     while LoadBarFill.Parent do
         local hue = tick() * 0.5 % 1
@@ -363,7 +584,7 @@ end)
 
 local LoadStatus = Instance.new("TextLabel", LoadBg)
 LoadStatus.AnchorPoint = Vector2.new(0.5, 0.5)
-LoadStatus.Position = UDim2.new(0.5, 0, 0.905, 0)
+LoadStatus.Position = UDim2.new(0.5, 0, 0.915, 0)
 LoadStatus.Size = UDim2.new(1, 0, 0, 16)
 LoadStatus.BackgroundTransparency = 1
 LoadStatus.Text = "Iniciando..."
@@ -376,18 +597,18 @@ LoadFooter.AnchorPoint = Vector2.new(0.5, 1)
 LoadFooter.Position = UDim2.new(0.5, 0, 1, -15)
 LoadFooter.Size = UDim2.new(1, 0, 0, 15)
 LoadFooter.BackgroundTransparency = 1
-LoadFooter.Text = "by Malokas • v24 🌈"
+LoadFooter.Text = "by Malokas • v34 🌈"
 LoadFooter.TextColor3 = Color3.fromRGB(80,80,100)
 LoadFooter.Font = Enum.Font.Gotham
 LoadFooter.TextSize = 10
 
 local steps = {
-    {15, "Carregando..."},
-    {35, "Iniciando interface..."},
-    {55, "Preparando ESP..."},
-    {75, "Ativando arco-íris 🌈"},
+    {15, "Carregando módulos..."},
+    {35, "Bypass anti-revert..."},
+    {55, "Sistema Shark Grab ativado..."},
+    {75, "Ligando Fly + Invisível..."},
     {95, "Calibrando aimbot..."},
-    {100, "Bem-vindo! 🦈"},
+    {100, "Bem-vindo! 🚗"},
 }
 
 task.spawn(function()
@@ -401,7 +622,7 @@ task.spawn(function()
     task.wait(1.5)
 
     local fi = TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
-    for _, obj in ipairs({LoadBg, LoadLogo, LoadTitle, LoadSub, socialFrame, LoadBarHolder, LoadBarFill, LoadStatus, LoadFooter}) do
+    for _, obj in ipairs({LoadBg, LoadLogo, LoadTitle, WarningLabel, LoadSub, socialFrame, LoadBarHolder, LoadBarFill, LoadStatus, LoadFooter}) do
         if obj:IsA("Frame") or obj:IsA("TextButton") then
             TweenService:Create(obj, fi, {BackgroundTransparency = 1}):Play()
         elseif obj:IsA("TextLabel") then
@@ -445,23 +666,14 @@ ps.Thickness = 1.5
 ps.Transparency = 0.15
 
 local psGrad = Instance.new("UIGradient", ps)
-psGrad.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, ACCENT1),
-    ColorSequenceKeypoint.new(0.5, ACCENT2),
-    ColorSequenceKeypoint.new(1, ACCENT3),
-})
-
 task.spawn(function()
     while Panel.Parent do
         local hue = tick() * 0.3 % 1
-        local c1 = Color3.fromHSV(hue, 1, 1)
-        local c2 = Color3.fromHSV((hue + 0.33) % 1, 1, 1)
-        local c3 = Color3.fromHSV((hue + 0.66) % 1, 1, 1)
         if psGrad then
             psGrad.Color = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, c1),
-                ColorSequenceKeypoint.new(0.5, c2),
-                ColorSequenceKeypoint.new(1, c3),
+                ColorSequenceKeypoint.new(0, Color3.fromHSV(hue, 1, 1)),
+                ColorSequenceKeypoint.new(0.5, Color3.fromHSV((hue + 0.33) % 1, 1, 1)),
+                ColorSequenceKeypoint.new(1, Color3.fromHSV((hue + 0.66) % 1, 1, 1)),
             })
         end
         RunService.RenderStepped:Wait()
@@ -507,8 +719,7 @@ HeaderTitle.ZIndex = 8
 
 task.spawn(function()
     while HeaderTitle.Parent do
-        local hue = tick() * 0.3 % 1
-        HeaderTitle.TextColor3 = Color3.fromHSV(hue, 0.7, 1)
+        HeaderTitle.TextColor3 = Color3.fromHSV(tick() * 0.3 % 1, 0.7, 1)
         RunService.RenderStepped:Wait()
     end
 end)
@@ -551,7 +762,7 @@ Instance.new("UICorner", TabBar).CornerRadius = UDim.new(0,8)
 
 local tabList = Instance.new("UIListLayout", TabBar)
 tabList.FillDirection = Enum.FillDirection.Horizontal
-tabList.Padding = UDim.new(0,3)
+tabList.Padding = UDim.new(0,2)
 tabList.HorizontalAlignment = Enum.HorizontalAlignment.Center
 tabList.VerticalAlignment = Enum.VerticalAlignment.Center
 
@@ -565,7 +776,7 @@ local function makeTab(name, display, width)
     btn.Text = display
     btn.TextColor3 = TEXTDIM
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 10
+    btn.TextSize = 9
     btn.BorderSizePixel = 0
     btn.ZIndex = 8
     btn.Parent = TabBar
@@ -591,11 +802,12 @@ local function makeTab(name, display, width)
     return page
 end
 
-local PageMain  = makeTab("Main", "Aimbot", 62)
-local PageESP   = makeTab("ESP", "ESP", 48)
-local PageUni   = makeTab("Uni", "Extras", 58)
-local PagePoder = makeTab("Poder", "Poderes", 64)
-local PageInfo  = makeTab("Info", "Info", 42)
+local PageMain   = makeTab("Main", "Aimbot", 54)
+local PageESP    = makeTab("ESP", "ESP", 40)
+local PageModels = makeTab("Models", "Grab", 50)
+local PageUni    = makeTab("Uni", "Extras", 48)
+local PagePoder  = makeTab("Poder", "Poderes", 58)
+local PageInfo   = makeTab("Info", "Info", 38)
 
 local function selectTab(name)
     for n, d in pairs(Pages) do
@@ -608,9 +820,7 @@ local function selectTab(name)
 end
 
 for name, data in pairs(Pages) do
-    data.btn.MouseButton1Click:Connect(function()
-        selectTab(name)
-    end)
+    data.btn.MouseButton1Click:Connect(function() selectTab(name) end)
 end
 
 --============================================================
@@ -681,58 +891,6 @@ local function makeButton(parent, text, callback, color)
     return b
 end
 
-local function makeDropdown(parent, text, options, default, callback)
-    local holder = Instance.new("Frame", parent)
-    holder.Size = UDim2.new(1,0,0,52)
-    holder.BackgroundTransparency = 1
-    holder.ZIndex = 7
-
-    local lbl = Instance.new("TextLabel", holder)
-    lbl.Size = UDim2.new(1,0,0,16)
-    lbl.BackgroundTransparency = 1
-    lbl.Text = text
-    lbl.TextColor3 = TEXTDIM
-    lbl.Font = Enum.Font.GothamBold
-    lbl.TextSize = 10
-    lbl.TextXAlignment = Enum.TextXAlignment.Left
-    lbl.ZIndex = 8
-
-    local row = Instance.new("Frame", holder)
-    row.Size = UDim2.new(1,0,0,30)
-    row.Position = UDim2.new(0,0,0,18)
-    row.BackgroundTransparency = 1
-    row.ZIndex = 8
-    local rl = Instance.new("UIListLayout", row)
-    rl.FillDirection = Enum.FillDirection.Horizontal
-    rl.Padding = UDim.new(0,4)
-
-    local buttons = {}
-    for _, opt in ipairs(options) do
-        local b = Instance.new("TextButton", row)
-        b.Size = UDim2.new(0, 60, 1, 0)
-        b.BackgroundColor3 = (opt == default) and ACCENT1 or Color3.fromRGB(35,35,45)
-        b.Text = opt
-        b.TextColor3 = (opt == default) and Color3.new(1,1,1) or TEXTDIM
-        b.Font = Enum.Font.GothamBold
-        b.TextSize = 10
-        b.BorderSizePixel = 0
-        b.ZIndex = 9
-        Instance.new("UICorner", b).CornerRadius = UDim.new(0,5)
-
-        b.MouseButton1Click:Connect(function()
-            for _, other in ipairs(buttons) do
-                other.BackgroundColor3 = Color3.fromRGB(35,35,45)
-                other.TextColor3 = TEXTDIM
-            end
-            b.BackgroundColor3 = ACCENT1
-            b.TextColor3 = Color3.new(1,1,1)
-            if callback then callback(opt) end
-        end)
-        table.insert(buttons, b)
-    end
-    return holder
-end
-
 local function makeSlider(parent, text, min, max, default, callback)
     local holder = Instance.new("Frame", parent)
     holder.Size = UDim2.new(1,0,0,42)
@@ -794,6 +952,58 @@ local function makeSlider(parent, text, min, max, default, callback)
     end)
 end
 
+local function makeDropdown(parent, text, options, default, callback)
+    local holder = Instance.new("Frame", parent)
+    holder.Size = UDim2.new(1,0,0,52)
+    holder.BackgroundTransparency = 1
+    holder.ZIndex = 7
+
+    local lbl = Instance.new("TextLabel", holder)
+    lbl.Size = UDim2.new(1,0,0,16)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = text
+    lbl.TextColor3 = TEXTDIM
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 10
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.ZIndex = 8
+
+    local row = Instance.new("Frame", holder)
+    row.Size = UDim2.new(1,0,0,30)
+    row.Position = UDim2.new(0,0,0,18)
+    row.BackgroundTransparency = 1
+    row.ZIndex = 8
+    local rl = Instance.new("UIListLayout", row)
+    rl.FillDirection = Enum.FillDirection.Horizontal
+    rl.Padding = UDim.new(0,4)
+
+    local buttons = {}
+    for _, opt in ipairs(options) do
+        local b = Instance.new("TextButton", row)
+        b.Size = UDim2.new(0, 60, 1, 0)
+        b.BackgroundColor3 = (opt == default) and ACCENT1 or Color3.fromRGB(35,35,45)
+        b.Text = opt
+        b.TextColor3 = (opt == default) and Color3.new(1,1,1) or TEXTDIM
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 10
+        b.BorderSizePixel = 0
+        b.ZIndex = 9
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0,5)
+
+        b.MouseButton1Click:Connect(function()
+            for _, other in ipairs(buttons) do
+                other.BackgroundColor3 = Color3.fromRGB(35,35,45)
+                other.TextColor3 = TEXTDIM
+            end
+            b.BackgroundColor3 = ACCENT1
+            b.TextColor3 = Color3.new(1,1,1)
+            if callback then callback(opt) end
+        end)
+        table.insert(buttons, b)
+    end
+    return holder
+end
+
 --============================================================
 -- ABA MAIN
 --============================================================
@@ -821,40 +1031,190 @@ makeSlider(PageMain, "Distância máx", 100, 5000, CONFIG.AimMaxDistance, functi
 --============================================================
 makeToggle(PageESP, "ESP GERAL", CONFIG.ESPEnabled, function(s) CONFIG.ESPEnabled = s end)
 makeToggle(PageESP, "ESP TEAM CHECK", CONFIG.ESPTeamCheck, function(s) CONFIG.ESPTeamCheck = s end)
-makeToggle(PageESP, "BOX", CONFIG.ESPBox, function(s) CONFIG.ESPBox = s end)
-makeToggle(PageESP, "BOX FILL", CONFIG.ESPBoxFill, function(s) CONFIG.ESPBoxFill = s end)
-makeToggle(PageESP, "ESQUELETO", CONFIG.ESPSkeleton, function(s) CONFIG.ESPSkeleton = s end)
-makeToggle(PageESP, "NOME", CONFIG.ESPName, function(s) CONFIG.ESPName = s end)
-makeToggle(PageESP, "VIDA (barra)", CONFIG.ESPHealthBar, function(s) CONFIG.ESPHealthBar = s end)
-makeToggle(PageESP, "DISTÂNCIA", CONFIG.ESPDistance, function(s) CONFIG.ESPDistance = s end)
-makeToggle(PageESP, "HEAD DOT", CONFIG.ESPHeadDot, function(s) CONFIG.ESPHeadDot = s end)
-makeToggle(PageESP, "OUTLINE", CONFIG.ESPOutline, function(s) CONFIG.ESPOutline = s end)
-makeToggle(PageESP, "CÍRCULO FOV", CONFIG.ESPFovCircle, function(s) CONFIG.ESPFovCircle = s end)
+makeToggle(PageESP, "🌈 BOX", CONFIG.ESPBox, function(s) CONFIG.ESPBox = s end)
+makeToggle(PageESP, "🌈 TRACER", CONFIG.ESPTracer, function(s) CONFIG.ESPTracer = s end)
+makeToggle(PageESP, "🌈 ESQUELETO", CONFIG.ESPSkeleton, function(s) CONFIG.ESPSkeleton = s end)
+makeToggle(PageESP, "▫️ BOX FILL", CONFIG.ESPBoxFill, function(s) CONFIG.ESPBoxFill = s end)
+makeToggle(PageESP, "🏷️ NOME", CONFIG.ESPName, function(s) CONFIG.ESPName = s end)
+makeToggle(PageESP, "❤️ VIDA", CONFIG.ESPHealthBar, function(s) CONFIG.ESPHealthBar = s end)
+makeToggle(PageESP, "📍 DISTÂNCIA", CONFIG.ESPDistance, function(s) CONFIG.ESPDistance = s end)
+makeToggle(PageESP, "🔴 HEAD DOT", CONFIG.ESPHeadDot, function(s) CONFIG.ESPHeadDot = s end)
+makeToggle(PageESP, "✨ OUTLINE", CONFIG.ESPOutline, function(s) CONFIG.ESPOutline = s end)
+makeToggle(PageESP, "⚪ CÍRCULO FOV", CONFIG.ESPFovCircle, function(s) CONFIG.ESPFovCircle = s end)
+makeSlider(PageESP, "Velocidade do Rainbow", 0.2, 3, CONFIG.ESPRainbowSpeed, function(v) CONFIG.ESPRainbowSpeed = v end)
 
-makeDropdown(PageESP, "MODO DE COR 🌈", {"Vida","Rainbow","Fixo"}, CONFIG.ESPColorMode, function(opt)
-    CONFIG.ESPColorMode = opt
-end)
+--============================================================
+-- ABA GRAB (PEGAR/ARREMESSAR MODEL)
+--============================================================
+local statusLbl = Instance.new("TextLabel", PageModels)
+statusLbl.Size = UDim2.new(1,0,0,30)
+statusLbl.BackgroundColor3 = Color3.fromRGB(20,20,28)
+statusLbl.Text = "🖱️ Mire em um model e clique em PEGAR"
+statusLbl.TextColor3 = Color3.fromRGB(0, 220, 255)
+statusLbl.Font = Enum.Font.GothamBold
+statusLbl.TextSize = 10
+statusLbl.BorderSizePixel = 0
+statusLbl.TextWrapped = true
+Instance.new("UICorner", statusLbl).CornerRadius = UDim.new(0,6)
 
-makeSlider(PageESP, "Velocidade do Rainbow", 0.2, 3, CONFIG.ESPRainbowSpeed, function(v)
-    CONFIG.ESPRainbowSpeed = v
-end)
+makeButton(PageModels, "✋ PEGAR MODEL (mira)", function()
+    local m = getModelUnderMouse()
+    if m then
+        grabModel(m)
+        statusLbl.Text = "✅ Segurando: " .. (m.Name or "Model")
+    else
+        statusLbl.Text = "❌ Nenhum model na mira"
+    end
+end, Color3.fromRGB(60, 140, 60))
+
+makeButton(PageModels, "🚀 ARREMESSAR (normal)", function()
+    if GrabSystem.Holding then
+        throwModel(false)
+        statusLbl.Text = "🚀 Arremessado!"
+    else
+        local m = getModelUnderMouse()
+        if m then
+            grabModel(m)
+            task.wait(0.05)
+            throwModel(false)
+            statusLbl.Text = "🚀 Pegou e arremessou!"
+        end
+    end
+end, Color3.fromRGB(140, 80, 30))
+
+makeButton(PageModels, "💥 ARREMESSAR (FORTE)", function()
+    if GrabSystem.Holding then
+        throwModel(true)
+        statusLbl.Text = "💥 Arremessado FORTE!"
+    else
+        local m = getModelUnderMouse()
+        if m then
+            grabModel(m)
+            task.wait(0.05)
+            throwModel(true)
+            statusLbl.Text = "💥 Pegou e arremessou FORTE!"
+        end
+    end
+end, Color3.fromRGB(200, 40, 40))
+
+makeButton(PageModels, "⬇️ SOLTAR (sem arremessar)", function()
+    if GrabSystem.Holding then
+        releaseModel()
+        statusLbl.Text = "⬇️ Soltou o model"
+    end
+end, Color3.fromRGB(80, 80, 100))
+
+makeButton(PageModels, "🎯 PUXAR PRA MIM", function()
+    local m = getModelUnderMouse()
+    if not m then return end
+    local char = LocalPlayer.Character
+    local myHrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not myHrp then return end
+    local targetPos = myHrp.Position + Camera.CFrame.LookVector * 6 + Vector3.new(0,3,0)
+
+    if m:IsA("Model") then
+        pcall(function() m:PivotTo(CFrame.new(targetPos)) end)
+    elseif m:IsA("BasePart") then
+        pcall(function()
+            m.Anchored = false
+            m.CFrame = CFrame.new(targetPos)
+        end)
+    end
+end, Color3.fromRGB(60, 100, 120))
+
+makeButton(PageModels, "☁️ MANDAR PRO CÉU", function()
+    local m = getModelUnderMouse()
+    if not m then return end
+    local parts = m:IsA("Model") and m:GetDescendants() or {m}
+    for _, p in ipairs(parts) do
+        if p:IsA("BasePart") then
+            pcall(function()
+                p.Anchored = false
+                p.AssemblyLinearVelocity = Vector3.new(0, 400, 0)
+            end)
+        end
+    end
+end, Color3.fromRGB(80, 80, 160))
+
+makeButton(PageModels, "🌀 GIRAR (spin)", function()
+    local m = getModelUnderMouse()
+    if not m then return end
+    local parts = m:IsA("Model") and m:GetDescendants() or {m}
+    for _, p in ipairs(parts) do
+        if p:IsA("BasePart") then
+            pcall(function()
+                p.Anchored = false
+                p.AssemblyAngularVelocity = Vector3.new(50, 100, 50)
+            end)
+        end
+    end
+end, Color3.fromRGB(160, 60, 160))
+
+makeButton(PageModels, "❄️ CONGELAR", function()
+    local m = getModelUnderMouse()
+    if not m then return end
+    local parts = m:IsA("Model") and m:GetDescendants() or {m}
+    for _, p in ipairs(parts) do
+        if p:IsA("BasePart") then
+            pcall(function() p.Anchored = true end)
+        end
+    end
+end, Color3.fromRGB(60, 130, 200))
+
+makeButton(PageModels, "🗑️ DELETAR", function()
+    local m = getModelUnderMouse()
+    if not m then return end
+    pcall(function() m:Destroy() end)
+    statusLbl.Text = "🗑️ Model deletado"
+end, Color3.fromRGB(140, 30, 30))
+
+makeSlider(PageModels, "Distância (na frente)", 4, 25, CONFIG.GrabDistance, function(v) CONFIG.GrabDistance = v end)
+makeSlider(PageModels, "Força arremesso normal", 50, 1000, CONFIG.ThrowForce, function(v) CONFIG.ThrowForce = v end)
+makeSlider(PageModels, "Força arremesso FORTE", 200, 3000, CONFIG.ThrowForceMax, function(v) CONFIG.ThrowForceMax = v end)
+makeSlider(PageModels, "Força pra cima", 0, 500, CONFIG.ThrowUpForce, function(v) CONFIG.ThrowUpForce = v end)
+makeSlider(PageModels, "Rotação (spin)", 0, 300, CONFIG.ThrowSpin, function(v) CONFIG.ThrowSpin = v end)
 
 --============================================================
 -- ABA EXTRAS
 --============================================================
-makeToggle(PageUni, "🛸 FLY", CONFIG.FlyEnabled, function(s)
+makeToggle(PageUni, "🛸 FLY (simples)", CONFIG.FlyEnabled, function(s)
     CONFIG.FlyEnabled = s
-    if not s then
-        local char = LocalPlayer.Character
-        if char then
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            local bg = hrp and hrp:FindFirstChild("MALOKAS_FLY")
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if s then
+        if hum then pcall(function() hum.PlatformStand = true end) end
+    else
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            local bg = hrp:FindFirstChild("MALOKAS_FLY")
             if bg then bg:Destroy() end
         end
+        if hum then pcall(function() hum.PlatformStand = false end) end
     end
 end)
 
-makeSlider(PageUni, "Velocidade do Fly", 20, 300, CONFIG.FlySpeed, function(v) CONFIG.FlySpeed = v end)
+makeSlider(PageUni, "Velocidade do Fly", 20, 400, CONFIG.FlySpeed, function(v) CONFIG.FlySpeed = v end)
+makeToggle(PageUni, "🛡️ ANTI-REVERT FLY", CONFIG.FlyAntiRevert, function(s) CONFIG.FlyAntiRevert = s end)
+
+makeButton(PageUni, "🚀 ABRIR FLY GUI V3 (XNEOFF)", function()
+    local success, err = pcall(function()
+        loadstring(game:HttpGet(CONFIG.FlyV3Script))()
+    end)
+    if not success then warn("[MALOKAS] Erro Fly Gui V3:", err) end
+end, Color3.fromRGB(180, 100, 30))
+
+makeButton(PageUni, "👻 SCRIPT INVISÍVEL + ANTI-REVERT", function()
+    AntiRevert.Active = true
+    local success, err = pcall(function()
+        loadstring(game:HttpGet(CONFIG.InvisibleScript))()
+    end)
+    if not success then warn("[MALOKAS] Erro invisível:", err) end
+end, Color3.fromRGB(80, 40, 130))
+
+makeButton(PageUni, "🔓 DESLIGAR ANTI-REVERT", function()
+    AntiRevert.Active = false
+end, Color3.fromRGB(120, 40, 40))
 
 makeToggle(PageUni, "🏃 SPEED", CONFIG.SpeedEnabled, function(s)
     CONFIG.SpeedEnabled = s
@@ -866,7 +1226,6 @@ makeToggle(PageUni, "🏃 SPEED", CONFIG.SpeedEnabled, function(s)
 end)
 
 makeSlider(PageUni, "Velocidade", 16, 300, CONFIG.SpeedValue, function(v) CONFIG.SpeedValue = v end)
-
 makeToggle(PageUni, "👻 NOCLIP", CONFIG.NoclipEnabled, function(s) CONFIG.NoclipEnabled = s end)
 makeToggle(PageUni, "🦘 INFINITE JUMP", CONFIG.InfJumpEnabled, function(s) CONFIG.InfJumpEnabled = s end)
 makeToggle(PageUni, "💡 FULLBRIGHT", CONFIG.Fullbright, function(s)
@@ -1039,7 +1398,7 @@ local infoTik = Instance.new("TextButton", socialInfo)
 infoTik.Size = UDim2.new(1,0,0,26)
 infoTik.Position = UDim2.new(0,0,0,34)
 infoTik.BackgroundColor3 = Color3.fromRGB(20,20,30)
-infoTik.Text = "📱  TikTok:  @malokasscr1pter"
+infoTik.Text = "📱  TikTok:  " .. CONFIG.TikTokUser
 infoTik.TextColor3 = Color3.fromRGB(255,255,255)
 infoTik.Font = Enum.Font.GothamBold
 infoTik.TextSize = 12
@@ -1047,7 +1406,7 @@ infoTik.BorderSizePixel = 0
 Instance.new("UICorner", infoTik).CornerRadius = UDim.new(0,5)
 infoTik.MouseButton1Click:Connect(function()
     pcall(function()
-        game:GetService("GuiService"):OpenBrowserWindow("https://www.tiktok.com/@malokasscr1pter")
+        game:GetService("GuiService"):OpenBrowserWindow(CONFIG.TikTokURL)
     end)
 end)
 
@@ -1105,7 +1464,7 @@ local infoFooter = Instance.new("TextLabel", socialInfo)
 infoFooter.Size = UDim2.new(1,0,0,50)
 infoFooter.Position = UDim2.new(0,0,0,162)
 infoFooter.BackgroundTransparency = 1
-infoFooter.Text = "Aimbot ativa sozinho! ⚡\nVersão: v24 • Free 🌈"
+infoFooter.Text = "🦈 Grab estilo Shark Menu\n👻 Invisível | 🛸 Fly | 🌈 Rainbow\nVersão: v34 • Free"
 infoFooter.TextColor3 = TEXTDIM
 infoFooter.Font = Enum.Font.Gotham
 infoFooter.TextSize = 11
@@ -1133,12 +1492,6 @@ obs.Thickness = 2
 obs.Transparency = 0
 
 local obGrad = Instance.new("UIGradient", obs)
-obGrad.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, ACCENT1),
-    ColorSequenceKeypoint.new(0.5, ACCENT2),
-    ColorSequenceKeypoint.new(1, ACCENT3),
-})
-
 task.spawn(function()
     while OpenBtn.Parent do
         local hue = (tick() * 0.3) % 1
@@ -1214,17 +1567,40 @@ do
     end)
 end
 
+--============================================================
+-- TECLA E (PEGAR/ARREMESSAR)
+--============================================================
 UserInputService.InputBegan:Connect(function(input, gpe)
     if gpe then return end
+
     if input.KeyCode == Enum.KeyCode.K then
         Panel.Visible = not Panel.Visible
+    end
+
+    -- Tecla E: pega ou arremessa
+    if input.KeyCode == CONFIG.GrabKey then
+        if GrabSystem.Holding then
+            -- Já segurando → arremessa
+            local strong = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+            throwModel(strong)
+            statusLbl.Text = strong and "💥 ARREMESSOU FORTE!" or "🚀 Arremessou!"
+        else
+            -- Não segurando → pega o model da mira
+            local m = getModelUnderMouse()
+            if m then
+                grabModel(m)
+                statusLbl.Text = "✋ Segurando: " .. (m.Name or "Model")
+            else
+                statusLbl.Text = "❌ Nenhum model na mira"
+            end
+        end
     end
 end)
 
 selectTab("Main")
 
 --============================================================
--- FOV
+-- FOV + HELPERS
 --============================================================
 local FovCircle = Instance.new("Frame")
 FovCircle.AnchorPoint = Vector2.new(0.5,0.5)
@@ -1240,9 +1616,6 @@ fcs.Color = ACCENT1
 fcs.Thickness = 1
 fcs.Transparency = 0.5
 
---============================================================
--- HELPERS
---============================================================
 local function isAlive(char)
     if not char then return false end
     local hum = char:FindFirstChildOfClass("Humanoid")
@@ -1288,22 +1661,6 @@ end
 local function worldToScreen(pos)
     local sp, on = Camera:WorldToViewportPoint(pos)
     return Vector2.new(sp.X, sp.Y), on, sp.Z
-end
-
-local function colorFromHealth(ratio)
-    if ratio > 0.6 then return Color3.fromRGB(0,255,100)
-    elseif ratio > 0.3 then return Color3.fromRGB(255,200,0)
-    else return Color3.fromRGB(255,60,60) end
-end
-
-local function getESPColor(plr, ratio, offset)
-    if CONFIG.ESPColorMode == "Rainbow" then
-        return getRainbowColor(offset)
-    elseif CONFIG.ESPColorMode == "Fixo" then
-        return CONFIG.ESPFixedColor
-    else
-        return colorFromHealth(ratio)
-    end
 end
 
 --============================================================
@@ -1366,6 +1723,13 @@ local function createESP(plr)
     boxFill.Size = UDim2.fromScale(1,1)
     boxFill.Visible = false
 
+    local tracer = Instance.new("Frame", draw)
+    tracer.BackgroundColor3 = ACCENT1
+    tracer.BorderSizePixel = 0
+    tracer.AnchorPoint = Vector2.new(0.5, 0.5)
+    tracer.Visible = false
+    tracer.ZIndex = 4
+
     local nameLbl = Instance.new("TextLabel", draw)
     nameLbl.BackgroundTransparency = 1
     nameLbl.Text = plr.Name
@@ -1382,7 +1746,7 @@ local function createESP(plr)
     local distText = Instance.new("TextLabel", draw)
     distText.BackgroundTransparency = 1
     distText.Text = "0m"
-    distText.TextColor3 = TEXTDIM
+    distText.TextColor3 = Color3.fromRGB(200,200,200)
     distText.TextStrokeTransparency = 0
     distText.TextStrokeColor3 = Color3.new(0,0,0)
     distText.Font = Enum.Font.GothamBold
@@ -1416,7 +1780,7 @@ local function createESP(plr)
     for i = 1, 10 do skLines[i] = makeLine(skHolder) end
 
     local headDot = Instance.new("Frame", draw)
-    headDot.BackgroundColor3 = ACCENT3
+    headDot.BackgroundColor3 = Color3.fromRGB(255,60,60)
     headDot.BorderSizePixel = 0
     headDot.Size = UDim2.new(0, 6, 0, 6)
     headDot.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -1426,7 +1790,7 @@ local function createESP(plr)
 
     espData[plr] = {
         hl=hl, draw=draw, box=box, boxStroke=boxStroke, boxFill=boxFill,
-        nameLbl=nameLbl, distText=distText, hpBarBg=hpBarBg, hpBar=hpBar,
+        tracer=tracer, nameLbl=nameLbl, distText=distText, hpBarBg=hpBarBg, hpBar=hpBar,
         skHolder=skHolder, skLines=skLines, headDot=headDot,
     }
 end
@@ -1463,10 +1827,7 @@ RunService.RenderStepped:Connect(function()
 
     FovCircle.Size = UDim2.new(0, CONFIG.AimFOV*2, 0, CONFIG.AimFOV*2)
     FovCircle.Visible = CONFIG.AimEnabled and CONFIG.ESPFovCircle
-
-    if CONFIG.ESPColorMode == "Rainbow" and CONFIG.AimEnabled then
-        fcs.Color = getRainbowColor(0)
-    end
+    if CONFIG.AimEnabled then fcs.Color = getRainbowColor(0) end
 
     if not espBuilt then return end
 
@@ -1490,16 +1851,16 @@ RunService.RenderStepped:Connect(function()
                     local boxY = topPos.Y
                     local ratio = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
                     local playerOffset = (plr.UserId % 100) / 100
-                    local color = getESPColor(plr, ratio, playerOffset)
+                    local rainbowColor = getRainbowColor(playerOffset)
 
                     if CONFIG.ESPBox then
                         d.box.Visible = true
                         d.box.Size = UDim2.new(0, width, 0, height)
                         d.box.Position = UDim2.new(0, boxX, 0, boxY)
-                        d.boxStroke.Color = color
+                        d.boxStroke.Color = rainbowColor
                         if CONFIG.ESPBoxFill then
                             d.boxFill.Visible = true
-                            d.boxFill.BackgroundColor3 = color
+                            d.boxFill.BackgroundColor3 = getNormalColor(ratio, "outline")
                         else
                             d.boxFill.Visible = false
                         end
@@ -1508,33 +1869,13 @@ RunService.RenderStepped:Connect(function()
                         d.boxFill.Visible = false
                     end
 
-                    if CONFIG.ESPName then
-                        d.nameLbl.Visible = true
-                        d.nameLbl.Text = plr.Name
-                        d.nameLbl.Position = UDim2.new(0, pos.X, 0, boxY - 12)
-                        d.nameLbl.TextColor3 = (CONFIG.ESPColorMode == "Rainbow") and color or Color3.new(1,1,1)
+                    if CONFIG.ESPTracer then
+                        local originP = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+                        local targetP = Vector2.new(pos.X, botPos.Y)
+                        setLine(d.tracer, originP, targetP)
+                        d.tracer.BackgroundColor3 = rainbowColor
                     else
-                        d.nameLbl.Visible = false
-                    end
-
-                    if CONFIG.ESPDistance then
-                        d.distText.Visible = true
-                        local dist = math.floor((Camera.CFrame.Position - hrp.Position).Magnitude + 0.5)
-                        d.distText.Text = dist .. "m"
-                        d.distText.Position = UDim2.new(0, pos.X, 0, boxY + height + 6)
-                        d.distText.TextColor3 = (CONFIG.ESPColorMode == "Rainbow") and color or TEXTDIM
-                    else
-                        d.distText.Visible = false
-                    end
-
-                    if CONFIG.ESPHealthBar then
-                        d.hpBarBg.Visible = true
-                        d.hpBarBg.Size = UDim2.new(0, 4, 0, height)
-                        d.hpBarBg.Position = UDim2.new(0, boxX - 7, 0, boxY)
-                        d.hpBar.Size = UDim2.new(1, 0, ratio, 0)
-                        d.hpBar.BackgroundColor3 = color
-                    else
-                        d.hpBarBg.Visible = false
+                        d.tracer.Visible = false
                     end
 
                     if CONFIG.ESPSkeleton then
@@ -1545,7 +1886,7 @@ RunService.RenderStepped:Connect(function()
                                 local p2, on2 = worldToScreen(b.Position)
                                 if on1 and on2 then
                                     setLine(d.skLines[i], p1, p2)
-                                    d.skLines[i].BackgroundColor3 = color
+                                    d.skLines[i].BackgroundColor3 = rainbowColor
                                 else
                                     d.skLines[i].Visible = false
                                 end
@@ -1572,12 +1913,41 @@ RunService.RenderStepped:Connect(function()
                         for _, ln in ipairs(d.skLines) do ln.Visible = false end
                     end
 
+                    if CONFIG.ESPName then
+                        d.nameLbl.Visible = true
+                        d.nameLbl.Text = plr.Name
+                        d.nameLbl.Position = UDim2.new(0, pos.X, 0, boxY - 12)
+                        d.nameLbl.TextColor3 = getNormalColor(ratio, "name")
+                    else
+                        d.nameLbl.Visible = false
+                    end
+
+                    if CONFIG.ESPDistance then
+                        d.distText.Visible = true
+                        local dist = math.floor((Camera.CFrame.Position - hrp.Position).Magnitude + 0.5)
+                        d.distText.Text = dist .. "m"
+                        d.distText.Position = UDim2.new(0, pos.X, 0, boxY + height + 6)
+                        d.distText.TextColor3 = getNormalColor(ratio, "distance")
+                    else
+                        d.distText.Visible = false
+                    end
+
+                    if CONFIG.ESPHealthBar then
+                        d.hpBarBg.Visible = true
+                        d.hpBarBg.Size = UDim2.new(0, 4, 0, height)
+                        d.hpBarBg.Position = UDim2.new(0, boxX - 7, 0, boxY)
+                        d.hpBar.Size = UDim2.new(1, 0, ratio, 0)
+                        d.hpBar.BackgroundColor3 = getNormalColor(ratio, "health")
+                    else
+                        d.hpBarBg.Visible = false
+                    end
+
                     if CONFIG.ESPHeadDot then
                         local hp, hpOn = worldToScreen(head.Position)
                         if hpOn then
                             d.headDot.Visible = true
                             d.headDot.Position = UDim2.new(0, hp.X, 0, hp.Y)
-                            d.headDot.BackgroundColor3 = color
+                            d.headDot.BackgroundColor3 = getNormalColor(ratio, "headdot")
                         else
                             d.headDot.Visible = false
                         end
@@ -1587,24 +1957,27 @@ RunService.RenderStepped:Connect(function()
 
                     d.hl.Adornee = char
                     d.hl.Enabled = CONFIG.ESPOutline
-                    d.hl.OutlineColor = color
+                    d.hl.OutlineColor = getNormalColor(ratio, "outline")
                 else
                     d.draw.Visible = false
                     d.hl.Enabled = false
+                    d.tracer.Visible = false
                 end
             else
                 d.draw.Visible = false
                 d.hl.Enabled = false
+                d.tracer.Visible = false
             end
         else
             d.draw.Visible = false
             d.hl.Enabled = false
+            d.tracer.Visible = false
         end
     end
 end)
 
 --============================================================
--- AIMBOT 100% AUTOMÁTICO (só ativar!)
+-- AIMBOT
 --============================================================
 local function getBestHead()
     local bestHead, bestScore = nil, math.huge
@@ -1637,8 +2010,6 @@ local function getBestHead()
     return bestHead
 end
 
--- Loop roda SEMPRE, mas só age se CONFIG.AimEnabled = true
--- Sem clique, sem tecla, sem HOLD. Só ativar o toggle.
 RunService:BindToRenderStep("MALOKAS_Aim", Enum.RenderPriority.Camera.Value + 1, function(dt)
     if not CONFIG.AimEnabled then return end
     if not LocalPlayer.Character then return end
@@ -1660,7 +2031,7 @@ RunService:BindToRenderStep("MALOKAS_Aim", Enum.RenderPriority.Camera.Value + 1,
 end)
 
 --============================================================
--- EXTRAS LOOP
+-- FLY LOOP
 --============================================================
 RunService.RenderStepped:Connect(function()
     local char = LocalPlayer.Character
@@ -1670,11 +2041,14 @@ RunService.RenderStepped:Connect(function()
     if not hum or not hrp then return end
 
     if CONFIG.FlyEnabled then
+        if CONFIG.FlyAntiRevert then
+            pcall(function() hum.PlatformStand = true end)
+        end
         local bg = hrp:FindFirstChild("MALOKAS_FLY")
         if not bg then
             bg = Instance.new("BodyVelocity")
             bg.Name = "MALOKAS_FLY"
-            bg.MaxForce = Vector3.new(1e5,1e5,1e5)
+            bg.MaxForce = Vector3.new(1e5, 1e5, 1e5)
             bg.Velocity = Vector3.zero
             bg.Parent = hrp
         end
@@ -1687,6 +2061,12 @@ RunService.RenderStepped:Connect(function()
         if UserInputService:IsKeyDown(Enum.KeyCode.Space) then move = move + Vector3.new(0,1,0) end
         if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then move = move - Vector3.new(0,1,0) end
         bg.Velocity = move.Magnitude > 0 and (move.Unit * CONFIG.FlySpeed) or Vector3.zero
+    else
+        local bg = hrp:FindFirstChild("MALOKAS_FLY")
+        if bg then bg:Destroy() end
+        if CONFIG.FlyAntiRevert then
+            pcall(function() hum.PlatformStand = false end)
+        end
     end
 
     if CONFIG.NoclipEnabled then
@@ -1695,9 +2075,7 @@ RunService.RenderStepped:Connect(function()
         end
     end
 
-    if CONFIG.SpeedEnabled then
-        hum.WalkSpeed = CONFIG.SpeedValue
-    end
+    if CONFIG.SpeedEnabled then hum.WalkSpeed = CONFIG.SpeedValue end
 end)
 
 UserInputService.JumpRequest:Connect(function()
@@ -1733,4 +2111,4 @@ LocalPlayer.CharacterAdded:Connect(function(char)
     end
 end)
 
-print("[MALOKAS SCRIPTER v24] carregado 🦈🌈")
+print("[MALOKAS SCRIPTER v34] carregado 🦈🌈")
